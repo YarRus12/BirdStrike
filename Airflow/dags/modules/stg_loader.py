@@ -1,16 +1,17 @@
 import os
 import shutil
 import time
+import urllib.request
 import zipfile
 
 import numpy as np
 from selenium import webdriver
-import requests as req
+import requests
 import datetime
 from selenium.webdriver.common.by import By
 import pandas as pd
-from modules.instrumentals import clean_directory
-from modules.connections import PgConnect
+from .instrumentals import clean_directory
+from .connections import PgConnect
 
 
 class StgControler:
@@ -33,10 +34,17 @@ class StgControler:
         :param begining_date: Начальная дата загрузки
         :return: None
         """
+        from fake_useragent import UserAgent
+        user_agent = UserAgent("chrome")
+        ua = UserAgent()
+        # Передаем в переменную headers значения юзерагента для
+        headers = {'accept': '*/*', 'user-agent': ua['google chrome']}
         download_url = f"""https://www.ncei.noaa.gov/pub/data/noaa/isd-history.csv"""
-        response = req.get(download_url)
+        print("READY1")
+        response = urllib.request.urlopen(download_url)
         [clean_directory(full_path=f"{os.getcwd()}/{file}") for file in os.listdir(f"{os.getcwd()}") if
          file.startswith('isd')]
+        print("READY2")
         if response.status_code == 200:
             options = webdriver.ChromeOptions()
             options.add_argument('headless')
@@ -132,7 +140,7 @@ class StgControler:
                           'DAM_FUSE, STR_LG, DAM_LG, STR_TAIL, DAM_TAIL, STR_LGHTS, DAM_LGHTS, STR_OTHER, DAM_OTHER, ' \
                           'OTHER_SPECIFY, EFFECT, EFFECT_OTHER, SPECIES_ID, SPECIES, OUT_OF_RANGE_SPECIES, ' \
                           'REMARKS, REMAINS_COLLECTED, REMAINS_SENT, BIRD_BAND_NUMBER, WARNED, NUM_SEEN, NUM_STRUCK, ' \
-                          'SIZE, NR_INJURIES, NR_FATALITIES, COMMENTS, REPORTER_NAME, REPORTER_TITLE, SOURCE, PERSON, '\
+                          'SIZE, NR_INJURIES, NR_FATALITIES, COMMENTS, REPORTER_NAME, REPORTER_TITLE, SOURCE, PERSON, ' \
                           'LUPDATE, IMAGE, TRANSFER'
 
                 cursor = connect.cursor()
@@ -155,7 +163,7 @@ class StgControler:
                               as inc_coordinates,
                         '{str(row.LATITUDE).replace('°', '').replace("'", '').replace("?N ", '').replace("?S", '')}' as LATITUDE, 
                         '{str(row.LONGITUDE).replace('°', '').replace("'", '').replace("?E", '').replace("?W", '')}' as LONGITUDE,
-                        '{str(row.RUNWAY or None).replace("'",'')}' as RUNWAY, 
+                        '{str(row.RUNWAY or None).replace("'", '')}' as RUNWAY, 
                         '{str(row.STATE or None)}' as STATE, 
                         '{str(row.FAAREGION or None)}' as FAAREGION,
                         '{str(row.LOCATION or None).replace("'", ' ')}' as LOCATION, 
@@ -223,14 +231,14 @@ class StgControler:
                         '{bool(row.DAM_LGHTS or None)}' as DAM_LGHTS,
                         '{bool(row.STR_OTHER or None)}' as STR_OTHER,
                         '{bool(row.DAM_OTHER or None)}' as DAM_OTHER,
-                        '{str(row.OTHER_SPECIFY or None).replace("'",'')}' as OTHER_SPECIFY,
+                        '{str(row.OTHER_SPECIFY or None).replace("'", '')}' as OTHER_SPECIFY,
                         '{str(row.EFFECT or None)}' as EFFECT,
-                        '{str(row.EFFECT_OTHER or None).replace("'",'')}' as EFFECT_OTHER,
+                        '{str(row.EFFECT_OTHER or None).replace("'", '')}' as EFFECT_OTHER,
                         '{str(row.SPECIES_ID or None)}' as SPECIES_ID,
-                        '{str(row.SPECIES or None).replace("'",'')}' as SPECIES,
-                        '{str(row.OUT_OF_RANGE_SPECIES or None).replace("'",'')}' as OUT_OF_RANGE_SPECIES,
-                        '{str(row.REMARKS or None).replace("'",'')}' as REMARKS,
-                        '{str(row.REMAINS_COLLECTED or None).replace("'",'')}' as REMAINS_COLLECTED,
+                        '{str(row.SPECIES or None).replace("'", '')}' as SPECIES,
+                        '{str(row.OUT_OF_RANGE_SPECIES or None).replace("'", '')}' as OUT_OF_RANGE_SPECIES,
+                        '{str(row.REMARKS or None).replace("'", '')}' as REMARKS,
+                        '{str(row.REMAINS_COLLECTED or None).replace("'", '')}' as REMAINS_COLLECTED,
                         '{str(row.REMAINS_SENT or None)}' as REMAINS_SENT,
                         '{str(row.BIRD_BAND_NUMBER or None)}' as BIRD_BAND_NUMBER,
                         '{str(row.WARNED or None)}' as WARNED,
@@ -239,7 +247,7 @@ class StgControler:
                         '{str(row.SIZE or None)}' as SIZE,
                         '{str(row.NR_INJURIES or None)}' as NR_INJURIES,
                         '{str(row.NR_FATALITIES or None)}' as NR_FATALITIES,
-                        '{str(row.COMMENTS or None).replace("'",'')}' as COMMENTS,
+                        '{str(row.COMMENTS or None).replace("'", '')}' as COMMENTS,
                         '{str(row.REPORTER_NAME or None)}' as REPORTER_NAME,
                         '{str(row.REPORTER_TITLE or None)}' as REPORTER_TITLE,
                         '{str(row.SOURCE or None)}' as SOURCE,
@@ -269,7 +277,7 @@ class StgControler:
                     except Exception as e:
                         self.logger.error(e)
                         unloaded_rows.append(row)
-                        raise #pass
+                        raise  # pass
                 connect.commit()
                 if len(unloaded_rows) > 0:
                     self.logger.info(
@@ -295,6 +303,7 @@ class StgControler:
             :param end_date: конец периода выборки данных
             :return: None
             """
+        self.logger.info('First')
         if start_date is None:
             with self.pg_connect.connection() as connect:
                 cursor = connect.cursor()
@@ -304,7 +313,7 @@ class StgControler:
                     start_date = datetime.datetime.strftime(start_date, '%Y-%m-%d')
                 except TypeError:
                     start_date = history_start_date
-
+        self.logger.info('Second')
         if end_date is None:
             end_date = datetime.datetime.strptime(start_date, '%Y-%m-%d') + datetime.timedelta(weeks=8)
             end_date = datetime.datetime.strftime(end_date, '%Y-%m-%d')
@@ -313,13 +322,15 @@ class StgControler:
         if not start_date < end_date:
             self.logger.warning(f"All data loaded for {end_date}")
         else:
+            self.logger.info('Third')
             url = f"""https://wildlife.faa.gov/search"""  # роутер перебрасыват на страницу home, поэтому переход придется выполнять вручную
-            response = req.get(url)
-
+            response = requests.get(url)
+            self.logger.info('Fouth')
             # Зачищаем папку от zip файлов
             [clean_directory(full_path=f"{os.getcwd()}/{file}")
-             for file in os.listdir(f"{os.getcwd()}") if file.endswith('.zip')]
-            self.logger.info(f"Atempt to find data between {start_date} and {end_date}. Range {days_difference.days} days")
+                for file in os.listdir(f"{os.getcwd()}") if file.endswith('.zip')]
+            self.logger.info(
+                f"Atempt to find data between {start_date} and {end_date}. Range {days_difference.days} days")
             if response.status_code == 200:
                 options = webdriver.ChromeOptions()
                 options.add_argument('headless')
@@ -347,7 +358,8 @@ class StgControler:
                     except Exception:
                         print(f"Attempt № {i} failed")
                         self.logger.warning(f"Attempt № {i} failed")
-                time.sleep(days_difference.days / 2)  # Время для скачивания файла из расчета 0,5 секунды на загрузку 1 дня
+                time.sleep(
+                    days_difference.days / 2)  # Время для скачивания файла из расчета 0,5 секунды на загрузку 1 дня
                 for i in range(1, 5):
                     try:
                         current_file = [file for file in os.listdir(f"{os.getcwd()}") if file.endswith('.zip')][0]
@@ -380,7 +392,7 @@ class StgControler:
                         query += f"""('{row.STATION}', '{row.DATE}', '{row.WND}', '{row.CIG}', '{row.VIS}', '{row.TMP}', 
                         '{row.DEW}', '{row.SLP}'),"""
                     try:
-                        cursor.execute(query[:-1]+';')
+                        cursor.execute(query[:-1] + ';')
                     except Exception as e:
                         self.logger.error(e)
                         unloaded_rows.append(row)
@@ -402,7 +414,6 @@ class StgControler:
                 print(file, self.downloaded_files_list)
                 self.downloaded_files_list.remove(file)
 
-
     def receive_weatherstation_data(self,
                                     station_id: str,
                                     start_datetime: datetime,
@@ -415,7 +426,7 @@ class StgControler:
         URL = f"""https://www.ncei.noaa.gov/access/services/data/v1?dataset=global-hourly&stations={station_id}&startDate={start_datetime}T00:00:00&endDate={end_datetime}T23:59:59&includeAttributes=true&format=csv"""
         print(URL)
         clean_directory(full_path=f"{os.getcwd()}/{station_id}")  # Зачищает папку от файлов прежних неуспешных запусков
-        response = req.get(URL)
+        response = requests.get(URL)
         if response.status_code == 200:
             options = webdriver.ChromeOptions()
             options.add_argument('headless')

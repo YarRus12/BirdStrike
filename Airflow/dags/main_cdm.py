@@ -1,7 +1,5 @@
-import os
 import logging
 import datetime
-import pandas.io.sql as sqlio
 import pandas as pd
 
 from config import Config

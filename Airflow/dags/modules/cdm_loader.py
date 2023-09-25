@@ -1,10 +1,10 @@
-from modules.connections import PgConnect
+from connections import PgConnect
 import requests as req
 from selenium import webdriver
 import time
 import datetime
 from selenium.webdriver.common.by import By
-from modules.instrumentals import table_extractor
+from .instrumentals import table_extractor
 
 
 class CdmControler:

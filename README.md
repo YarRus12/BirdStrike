@@ -16,6 +16,14 @@ PET project. Database about aircraft birdstrike incidents
     Модуль instrumental содержит функции, которые прямо не отнесены к какому-то слою, но помогают для обработки данных
 
 
+База для airflow
+docker run -d -p 6666:5432 -e POSTGRES_PASSWORD=password -e POSTGRES_USER=airflow -e POSTGRES_DB=airflow -v postgres_data_airflow:/var/lib/postgresql/data postgres:13.1
+
+
+export AIRFLOW_HOME=$(pwd)/Airflow
+airflow standalone                                                 
+
+
 На текущем этапе разработки проект запускается локально с использованием базы данных в docker  
 Файл docker-compose.yaml с помощью команды **docker-compose up -d** создает докер-контейнер с СУБД POSTGRESQL  
 Проверить работостособность базы данных можно внутри контейнера с помощью команды:

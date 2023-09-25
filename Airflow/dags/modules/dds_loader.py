@@ -1,5 +1,5 @@
 from datetime import datetime
-from modules.connections import PgConnect
+from .connections import PgConnect
 
 
 class DdsControler:
@@ -134,7 +134,7 @@ class DdsControler:
             connect.autocommit = False
             cursor = connect.cursor()
             query = f"""
-            INSERT INTO {self.schema}.{table_name}
+            INSERT INTO DDS.incident_station_link --{self.schema}.{table_name}
             (index_incedent, weather_station)
             WITH incident as (
                 SELECT
