@@ -1,4 +1,4 @@
-from connections import PgConnect
+from .connections import PgConnect
 import requests as req
 from selenium import webdriver
 import time

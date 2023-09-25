@@ -3,6 +3,8 @@ import logging
 import datetime
 from config import Config
 from modules.stg_loader import StgControler
+from modules.dds_loader import DdsControler
+from modules.cdm_loader import CdmControler
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
@@ -58,6 +60,15 @@ stg_loadings = StgControler(date=datetime.datetime.now().date(),
                             pg_connect=config.pg_warehouse_db(),
                             schema='Stage',
                             logger=log)
+dds_uploads = DdsControler(date=datetime.datetime.now().date(),
+                           pg_connect=config.pg_warehouse_db(),
+                           schema='DDS',
+                           logger=log)
+
+cdm_loader = CdmControler(date=datetime.datetime.now().date(),
+                            pg_connect=config.pg_warehouse_db(),
+                            schema='CDM',
+                            logger=log)
 
 with DAG(
         dag_id="Stage_uploads",
@@ -88,5 +99,21 @@ with DAG(
         op_kwargs={'controller': stg_loadings,
                    'start_date': datetime.datetime(year=2019, month=1, day=1),
                    'end_date': datetime.datetime(year=2021, month=12, day=31)})
+    upload_animal_incidents = PythonOperator(
+        task_id='upload_animal_incidents',
+        python_callable=dds_uploads.upload_aircraft_incidents,
+        op_kwargs={'table_name': 'aircraft_incidents'})
+    upload_weather_data = PythonOperator(
+        task_id='upload_weather_data',
+        python_callable=dds_uploads.upload_weather_observation,
+        op_kwargs={'table_name': 'weather_observation'})
+    upload_weather_reference = PythonOperator(
+        task_id='upload_weather_reference',
+        python_callable=dds_uploads.upload_weather_observation,
+        op_kwargs={'table_name': 'observation_reference'})
+    upload_incident_station_link = PythonOperator(
+        task_id='upload_incident_station_link',
+        python_callable=dds_uploads.update_incident_station_link,
+        op_kwargs={'table_name': 'incident_station_link'})
 
-task_observation_reference >> [task_animal_incidents, task_weather_data]
+task_observation_reference >> upload_weather_reference >> task_animal_incidents >> upload_incident_station_link >> task_weather_data >> upload_weather_data
