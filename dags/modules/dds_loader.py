@@ -35,11 +35,22 @@ class DdsController:
             connect.commit()
         self.logger.info(f"Observation reference updated")
 
-    def upload_aircraft_incidents(self, table_name: str):
+    def upload_aircraft_incidents(self, table_name: str,
+                                  total_start: str = None,
+                                  total_end: str = None):
         """
         Method cleans up records and filing dds layer with aircraft incidents data
         param table_name: name of table for aircraft incidents
         """
+        first_case = ''
+        second_case = ''
+
+        if total_start:
+            first_case = f"AND CAST(INCIDENT_DATE as date) >= '{total_start}'"
+        if total_end:
+            second_case = f"AND CAST(INCIDENT_DATE as date) <= '{total_end}'"
+
+
         with self.pg_connect.connection() as connect:
             cursor = connect.cursor()
             query = f"""
@@ -62,11 +73,11 @@ class DdsController:
                )
 
                SELECT
-       cast (INDX_NR as int),
-       CAST (INCIDENT_DATE as date),
-       CAST (INCIDENT_MONTH as int),
-       CAST (INCIDENT_YEAR as int),
-       REPLACE(TRIM(time), '%', '0'),
+       cast(INDX_NR as int) as INDX_NR,
+       CAST(INCIDENT_DATE as date) as INCIDENT_DATE,
+       CAST(INCIDENT_MONTH as int) as INCIDENT_MONTH,
+       CAST(INCIDENT_YEAR as int) as INCIDENT_YEAR,
+       REPLACE(TRIM(time), '%', '0') as time,
        TIME_OF_DAY, AIRPORT_ID,
        AIRPORT,
        inc_coordinates,
@@ -130,7 +141,7 @@ class DdsController:
    IMAGE::bool,
    TRANSFER::bool
    FROM STAGE.aircraft_incidents
-   WHERE cast(indx_nr as int) not in (SELECT indx_nr FROM DDS.aircraft_incidents)
+   WHERE cast(indx_nr as int) not in (SELECT indx_nr FROM DDS.aircraft_incidents) {first_case} {second_case}
                ON CONFLICT DO NOTHING;
             """
             cursor.execute(query)

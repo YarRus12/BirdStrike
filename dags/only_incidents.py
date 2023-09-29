@@ -46,8 +46,14 @@ with DAG(
 ) as dag:
     task_animal_incidents = PythonOperator(
         task_id='download_animal_incidents',
-        python_callable=stg_loadings.animal_incidents_data
+        python_callable=stg_loadings.receive_animal_incidents_data
         )
+    task_animal_incidents_load_to_stage = PythonOperator(
+        task_id='load_animal_incidents_to_stage',
+        python_callable=stg_loadings.download_incidents,
+        op_kwargs={"table_name": "aircraft_incidents",
+                   "total_start_date": datetime.datetime(year=2018, month=1, day=1),
+                   "total_end_date": datetime.datetime(year=2022, month=12, day=31)})
     upload_animal_incidents = PythonOperator(
         task_id='upload_animal_incidents',
         python_callable=dds_uploads.upload_aircraft_incidents,
@@ -61,4 +67,4 @@ with DAG(
         python_callable=dds_uploads.upload_aircraft_incidents,
         op_kwargs={'table_name': 'aircraft_incidents'})
 
-pre_upload_animal_incidents >> task_animal_incidents >> upload_animal_incidents >> upload_incident_station_link
+pre_upload_animal_incidents >> task_animal_incidents >> task_animal_incidents_load_to_stage >> upload_animal_incidents >> upload_incident_station_link

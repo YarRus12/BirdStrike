@@ -49,12 +49,18 @@ with DAG(
         python_callable=stg_loadings.download_weather_station_reference,
         op_kwargs={'table_name': 'observation_reference'
                    })
-
-    task_animal_incidents = PythonOperator(
+    task_animal_incidents_download = PythonOperator(
         task_id='download_animal_incidents',
-        python_callable=stg_loadings.animal_incidents_data,
-        op_kwargs={'controller': stg_loadings,
-                   })
+        python_callable=stg_loadings.receive_animal_incidents_data,
+        op_kwargs={"all_flag": True,
+                   "start_date": None,
+                   "end_date": None})
+    task_animal_incidents_load_to_stage = PythonOperator(
+        task_id='load_animal_incidents_to_stage',
+        python_callable=stg_loadings.download_incidents,
+        op_kwargs={"table_name": "aircraft_incidents",
+                   "total_start_date": datetime.datetime(year=2018, month=1, day=1),
+                   "total_end_date": datetime.datetime(year=2022, month=12, day=31)})
     task_weather_data = PythonOperator(
         task_id='download_weather_data',
         python_callable=stg_loadings.weather_data,
@@ -64,7 +70,10 @@ with DAG(
     upload_animal_incidents = PythonOperator(
         task_id='upload_animal_incidents',
         python_callable=dds_uploads.upload_aircraft_incidents,
-        op_kwargs={'table_name': 'aircraft_incidents'})
+        op_kwargs={'table_name': 'aircraft_incidents',
+                   'total_start': '2018-12-31',
+                   'total_end': '2021-12-31'
+                   })
     upload_weather_data = PythonOperator(
         task_id='upload_weather_data',
         python_callable=dds_uploads.upload_weather_observation,
@@ -91,7 +100,7 @@ with DAG(
     )
 
 task_observation_reference >> upload_weather_reference >> upload_incident_station_link
-task_animal_incidents >> upload_animal_incidents >> upload_incident_station_link
+task_animal_incidents_download >> task_animal_incidents_load_to_stage >> upload_animal_incidents >> upload_incident_station_link
 upload_incident_station_link >> task_weather_data >> upload_weather_data
 upload_weather_data >> task_final_view
 upload_weather_data >> task_top_airports >> task_save_top_airports

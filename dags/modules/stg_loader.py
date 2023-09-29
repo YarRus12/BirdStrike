@@ -51,7 +51,8 @@ class StgController:
                 raise
             df = pd.read_csv(filepath_or_buffer=isd_file, engine='python', encoding='utf-8', on_bad_lines='warn')
             # WBAN could be less the 5 letters, but ncei value always have 11 chars
-            df['station'] = df['USAF'].astype(str).apply('{:0>6}'.format) + df["WBAN"].astype(str).apply('{:0>5}'.format)
+            df['station'] = df['USAF'].astype(str).apply('{:0>6}'.format) + df["WBAN"].astype(str).apply(
+                '{:0>5}'.format)
             result_df = df.query(f"`END` >= {begging_date.replace('-', '')}").query("`CTRY` == 'US'")
             result_df = result_df[['station', 'BEGIN', 'END', 'LAT', 'LON']]
             result_df.rename(columns={'BEGIN': 'start_date', 'END': 'end_date'}, inplace=True)
@@ -86,22 +87,18 @@ class StgController:
                 self.logger.info(f'Data loaded to {self.schema}.{table_name}')
                 clean_directory(full_path=f"{os.getcwd()}/{isd_file}")
 
-    def unzip_data(self):
+    def unzip_data(self, zip_file):
         """
         Method unzip files in Downloads folder into Archives folder
         and save file name in self.result_files_list
 
         """
         clean_directory(f"{os.getcwd()}/Archives/")
-        for archive in self.downloaded_files_list:
-            if archive.endswith('.zip'):
-                with zipfile.ZipFile(f"{os.getcwd()}/Downloads/{archive}") as archive_file:
-                    files_list = archive_file.namelist()
-                    for file in files_list:
-                        archive_file.extract(member=file, path=f"{os.getcwd()}/Archives/{self.date}")
-                        self.logger.info(msg=f"File {file} extracted in {os.getcwd()}/Archives/{self.date}")
-                        self.result_files_list.append(f"{os.getcwd()}/Archives/{self.date}/{file}")
-        self.downloaded_files_list.clear()
+        with zipfile.ZipFile(f"{os.getcwd()}/{zip_file}") as archive_file:
+            files_list = archive_file.namelist()
+            for file in files_list:
+                archive_file.extract(member=file, path=f"{os.getcwd()}/Downloads/{self.date}")
+                self.logger.info(msg=f"File {file} extracted in {os.getcwd()}/Downloads/{self.date}")
 
     def download_incidents(self, table_name: str):
         """
@@ -109,9 +106,9 @@ class StgController:
 
         param table_name: table name for incidents in stage schema
         """
-        for file_name in self.result_files_list:
+        for file_name in [file for file in os.listdir(f"{os.getcwd()}/Downloads/") if file.startswith('Wildlife_')]:
             self.logger.info(f"File {file_name} processed")
-            df = pd.read_excel(io=file_name, sheet_name='data')
+            df = pd.read_excel(io=file_name)
             with self.pg_connect.connection() as connect:
                 connect.autocommit = False
                 df['LATITUDE'] = df['LATITUDE'].fillna('0')
@@ -282,9 +279,26 @@ class StgController:
                 self.logger.info(f"Data loaded")
         self.result_files_list.clear()
 
+    def receive_all_incidents(self):
+        """
+        In case if all_flag is True method load all incidents from FAA website
+
+        """
+        [clean_directory(full_path=f"{os.getcwd()}/{file}")
+         for file in os.listdir(f"{os.getcwd()}") if file.endswith('.csv')]
+        achieve_url = """https://wildlife.faa.gov/assets/database.zip"""
+        os.system(f"curl -0 {achieve_url} -o database.zip")
+        zip_file = [file for file in os.listdir(f"{os.getcwd()}")
+                            if file.endswith('zip')][0]
+        self.unzip_data(zip_file=zip_file)
+
+        os.system(f"mdb-export {os.getcwd()}/Downloads/{self.date}/Public.accdb STRIKE_REPORTS > {os.getcwd()}/Downloads/Wildlife_export_all.csv")
+        print(f"List {os.listdir(os.getcwd()+'/Downloads')}")
+
     def receive_animal_incidents_data(self,
                                       start_date: str = None,
                                       end_date: str = None,
+                                      all_flag: bool = False,
                                       history_start_date: str = '2018-01-01'
                                       ):
         """
@@ -296,90 +310,83 @@ class StgController:
             param start_date: min date for leading data
             param end_date: max date for leading data
         """
-        if start_date is None:
-            with self.pg_connect.connection() as connect:
-                cursor = connect.cursor()
-                cursor.execute(f"""SELECT max(incident_date) FROM DDS.aircraft_incidents;""")
-                start_date = cursor.fetchone()[0]
-                try:
-                    start_date = datetime.datetime.strftime(start_date, '%Y-%m-%d')
-                except TypeError:
-                    start_date = history_start_date
-
-        if end_date is None:
-            end_date = datetime.datetime.strptime(start_date, '%Y-%m-%d') + datetime.timedelta(weeks=8)
-            if end_date.date() > datetime.datetime.now().date():
-                end_date = datetime.datetime.now().date()
-            end_date = datetime.datetime.strftime(end_date, '%Y-%m-%d')
-        days_difference = datetime.datetime.strptime(end_date, '%Y-%m-%d') - datetime.datetime.strptime(start_date,
-                                                                                                        '%Y-%m-%d')
-        if not start_date <= end_date:
-            self.logger.warning(f"All data loaded for {end_date}")
+        self.logger.info(f"All flag is {all_flag}")
+        if all_flag is True:
+            self.logger.info(f"Loading all incidents at once")
+            self.receive_all_incidents()
         else:
-            url = f"""https://wildlife.faa.gov/search"""  # the router redirects to the home page anyway
-            response = req.get(url)
+            if start_date is None:
+                with self.pg_connect.connection() as connect:
+                    cursor = connect.cursor()
+                    cursor.execute(f"""SELECT max(incident_date) FROM DDS.aircraft_incidents;""")
+                    start_date = cursor.fetchone()[0]
+                    try:
+                        start_date = datetime.datetime.strftime(start_date, '%Y-%m-%d')
+                    except TypeError:
+                        start_date = history_start_date
 
-            # cleanup Downloads folder from zip files
-            [clean_directory(full_path=f"{os.getcwd()}/Downloads/{file}")
-             for file in os.listdir(f"{os.getcwd()}/Downloads") if file.endswith('.zip')]
-            self.logger.info(f"Attempt to find data between {start_date} and {end_date}. "
-                             f"Range {days_difference.days} days")
-            if response.status_code == 200:
-                options = webdriver.ChromeOptions()
-                options.add_argument('headless')
-                remote_webdriver = 'remote_chromedriver'
-                with webdriver.Remote(f'{remote_webdriver}:4444/wd/hub', options=options) as driver:
-                    driver.get(url)
-                    driver.find_element(By.CSS_SELECTOR,
-                                        '#body > app-home > div > mat-card > mat-card-content > div > div > div.row > '
-                                        'div:nth-child(1) > a').click()  # go to page search
-                    time.sleep(5)
-                    driver.find_element(By.NAME, 'fromDate').send_keys(start_date)
-                    driver.find_element(By.NAME, 'toDate').send_keys(end_date)
-                    driver.find_element(By.XPATH,
-                                        '//*[@id="body"]/app-search/div[1]/mat-card/mat-card-content/div/div[1]/div['
-                                        '2]/div[ '
-                                        '2]/div[2]/span[1]/button[1]/span[2]').click()
-                    self.logger.info(f"Page {url} opened and filed, 10 seconds wait until data will be prepared")
-                    time.sleep(10)
-                    for i in range(1, 5):
-                        try:
-                            driver.find_element(By.CSS_SELECTOR,
-                                                '#body > app-search > div.content > mat-card > mat-card-content > div > '
-                                                'div.card.airport-information > div.card-body > '
-                                                'div.card-footer.remove-margin.row > div.col-md-6.text-right.float-right > '
-                                                'span:nth-child(2)').click()
-                            self.logger.info("Download button pressed")
-                            break
-                        except:
-                            self.logger.warning(f"Attempt № {i} failed")
-                            time.sleep(5)
+            if end_date is None:
+                end_date = datetime.datetime.strptime(start_date, '%Y-%m-%d') + datetime.timedelta(weeks=8)
+                if end_date.date() > datetime.datetime.now().date():
+                    end_date = datetime.datetime.now().date()
+                end_date = datetime.datetime.strftime(end_date, '%Y-%m-%d')
+            days_difference = datetime.datetime.strptime(end_date, '%Y-%m-%d') - datetime.datetime.strptime(start_date,
+                                                                                                            '%Y-%m-%d')
+            if not start_date <= end_date:
+                self.logger.warning(f"All data loaded for {end_date}")
+            else:
+                url = f"""https://wildlife.faa.gov/search"""  # the router redirects to the home page anyway
+                response = req.get(url)
 
-                    time.sleep(days_difference.days / 2)  # Time for download file based on 0,5 second per 1 day
-                    for i in range(1, 8):
-                        try:
-                            current_file = [file for file in os.listdir(f"{os.getcwd()}/Downloads/")
-                                            if file.endswith('.zip')][0]
-                            break
-                        except:
-                            self.logger.warning(f"File .zip not found")
-                            time.sleep(30)
-                            pass
-                    self.logger.info(f"file {current_file} loaded to {os.getcwd()}/Downloads")
-                    self.downloaded_files_list.append(current_file)
-
-    def animal_incidents_data(self,
-                              start_date: str = None,
-                              end_date: str = None):
-        """
-        Method-controller
-
-        param start_date: begging date of selection
-        param end_date: end date of selection
-        """
-        self.receive_animal_incidents_data(start_date=start_date, end_date=end_date)
-        self.unzip_data()
-        self.download_incidents(table_name='aircraft_incidents')
+                # cleanup Downloads folder from zip files
+                [clean_directory(full_path=f"{os.getcwd()}/Downloads/{file}")
+                 for file in os.listdir(f"{os.getcwd()}/Downloads") if file.endswith('.zip')]
+                self.logger.info(f"Attempt to find data between {start_date} and {end_date}. "
+                                 f"Range {days_difference.days} days")
+                if response.status_code == 200:
+                    options = webdriver.ChromeOptions()
+                    options.add_argument('headless')
+                    remote_webdriver = 'remote_chromedriver'
+                    with webdriver.Remote(f'{remote_webdriver}:4444/wd/hub', options=options) as driver:
+                        driver.get(url)
+                        driver.find_element(By.CSS_SELECTOR,
+                                            '#body > app-home > div > mat-card > mat-card-content > div > div > div.row > '
+                                            'div:nth-child(1) > a').click()  # go to page search
+                        time.sleep(5)
+                        driver.find_element(By.NAME, 'fromDate').send_keys(start_date)
+                        driver.find_element(By.NAME, 'toDate').send_keys(end_date)
+                        driver.find_element(By.XPATH,
+                                            '//*[@id="body"]/app-search/div[1]/mat-card/mat-card-content/div/div[1]/div['
+                                            '2]/div[ '
+                                            '2]/div[2]/span[1]/button[1]/span[2]').click()
+                        self.logger.info(f"Page {url} opened and filed, 10 seconds wait until data will be prepared")
+                        time.sleep(10)
+                        for i in range(1, 5):
+                            try:
+                                driver.find_element(By.CSS_SELECTOR,
+                                                    '#body > app-search > div.content > mat-card > mat-card-content > div > '
+                                                    'div.card.airport-information > div.card-body > '
+                                                    'div.card-footer.remove-margin.row > div.col-md-6.text-right.float-right > '
+                                                    'span:nth-child(2)').click()
+                                self.logger.info("Download button pressed")
+                                break
+                            except:
+                                self.logger.warning(f"Attempt № {i} failed")
+                                time.sleep(5)
+                        time.sleep(days_difference.days / 2)  # Time for download file based on 0,5 second per 1 day
+                        for i in range(1, 8):
+                            try:
+                                current_file = [file for file in os.listdir(f"{os.getcwd()}/Downloads/")
+                                                if file.endswith('.zip')][0]
+                                break
+                            except:
+                                self.logger.warning(f"File .zip not found")
+                                time.sleep(30)
+                                pass
+                        self.logger.info(f"file {current_file} loaded to {os.getcwd()}/Downloads")
+                        zip_file = [file for file in os.listdir(f"{os.getcwd()}")
+                                    if file.endswith('zip')][0]
+                        self.unzip_data(zip_file=zip_file)
 
     def load_weather_station_data(self, table_name):
         """
@@ -509,7 +516,8 @@ class StgController:
                     ORDER BY incident_date ASC"""
                 cursor.execute(query)
                 records = cursor.fetchall()
-                self.logger.info(f'Number of incidents, whose dont have weather data in DDS.weather_observation: {len(set(records))}')
+                self.logger.info(
+                    f'Number of incidents, whose dont have weather data in DDS.weather_observation: {len(set(records))}')
 
             # API can receive only 50 stations at once, so task take batch with for 50 incidents at once
             for i in range(len(records[:50])):
